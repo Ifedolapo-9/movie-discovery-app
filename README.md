@@ -1,13 +1,13 @@
 # Movie Discovery App
 
-A Streamlit web app that lets you find films using natural language, powered by [Weaviate](https://weaviate.io) (vector database) and OpenAI. The entire project was built with **Claude Code** — Anthropic's AI coding agent — assisted by **Weaviate Agent Skills**, a set of structured skill definitions that guide the agent to produce correct, production-ready Weaviate code from the first attempt.
+A Streamlit web app that lets you find films using natural language, powered by [Weaviate](https://weaviate.io) (vector database) and OpenAI. The entire project was built with **Claude Code** — Anthropic's AI coding agent — assisted by **[Weaviate Agent Skills](https://github.com/weaviate/agent-skills)**, a set of structured skill definitions that guide the agent to produce correct, production-ready Weaviate code from the first attempt.
 
 ## How It Was Built
 
 This project was developed end-to-end using **agentic coding**:
 
 - **Claude Code** (AI coding agent) wrote, ran, and debugged every script in this project — the schema, ingestion pipeline, and Streamlit app — based on natural language prompts.
-- **Weaviate Agent Skills** were loaded into Claude Code at session start. These skill files encode correct usage patterns for Weaviate operations (schema creation, vector search, RAG, Query Agent), eliminating guesswork and ensuring the agent used the right APIs from the start.
+- **[Weaviate Agent Skills](https://github.com/weaviate/agent-skills)** were loaded into Claude Code at session start. These skill files encode correct usage patterns for Weaviate operations (schema creation, vector search, RAG, Query Agent), eliminating guesswork and ensuring the agent used the right APIs from the start.
 - **TMDB API** was used to dynamically fetch movie metadata (titles, descriptions, release years, poster images) rather than hardcoding data. The ingestion script pages through TMDB's `top_rated` and `popular` endpoints to collect movies at scale.
 - **100 movies** are embedded in the Weaviate collection — each with a text vector (title) and an image vector (poster) stored as a base64 blob.
 
