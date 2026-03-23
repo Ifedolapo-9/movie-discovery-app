@@ -40,3 +40,4 @@ INFO:     127.0.0.1:63174 - "POST /ai/plan HTTP/1.1" 200 OK
 INFO:     127.0.0.1:61208 - "GET / HTTP/1.1" 404 Not Found
 INFO:     127.0.0.1:56141 - "GET /search?q=A%20movie%20for%20devs&limit=3 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:50954 - "GET /search?q=devs&limit=3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56567 - "GET / HTTP/1.1" 404 Not Found
