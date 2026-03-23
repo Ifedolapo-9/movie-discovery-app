@@ -160,7 +160,12 @@ def show_results(objects, prefix: str, query_for_ai: str, search_fn):
                 )
 
             st.markdown(f"### {props['title']}")
-            st.markdown(f"**Year:** {props.get('release_year', 'N/A')}")
+            year  = props.get('release_year', 'N/A')
+            rating = props.get('vote_average')
+            rating_str = f"  |  ⭐ {rating:.1f}" if rating else ""
+            st.markdown(f"**{year}**{rating_str}")
+            if props.get("genre"):
+                st.caption(f"🎭 {props['genre']}")
             st.caption(props.get("description", ""))
 
             # ── Add to watchlist ──────────────────────────────────────────────
@@ -253,7 +258,7 @@ with tab_search:
                 query=query,
                 target_vector="text_vector",
                 limit=3,
-                return_properties=["title", "description", "release_year", "poster"],
+                return_properties=["title", "description", "release_year", "genre", "vote_average", "poster"],
             )
 
         if not results.objects:

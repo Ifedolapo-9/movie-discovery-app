@@ -9,6 +9,8 @@ export interface Movie {
   title: string;
   description: string;
   release_year: number;
+  genre?: string;
+  vote_average?: number | null;
   poster: string | null;
 }
 
@@ -57,6 +59,14 @@ export default function MovieCard({
         <h3 className="font-semibold text-white text-sm leading-tight line-clamp-2">
           {movie.title}
         </h3>
+        <div className="flex items-center gap-2 flex-wrap">
+          {movie.vote_average != null && (
+            <span className="text-yellow-400 text-xs font-medium">⭐ {movie.vote_average.toFixed(1)}</span>
+          )}
+          {movie.genre && (
+            <span className="text-white/50 text-xs truncate">{movie.genre}</span>
+          )}
+        </div>
         <p className="text-white/60 text-xs leading-relaxed line-clamp-3 flex-1">
           {movie.description}
         </p>

@@ -7,9 +7,9 @@ A semantic movie search application built with a **FastAPI backend** and a **Nex
 This project was developed end-to-end using **agentic coding**:
 
 - **Claude Code** wrote, ran, and debugged every script and component in this project — the schema, ingestion pipeline, FastAPI backend, and Next.js frontend — based on natural language prompts.
-- **[Weaviate Agent Skills](https://github.com/weaviate/agent-skills)** were loaded into Claude Code at session start. These skill files encode correct usage patterns for Weaviate operations (schema creation, vector search, RAG, Query Agent), eliminating guesswork, define the frontend app, and ensuring the agent used the right APIs from the start.
-- **TMDB API** was used to dynamically fetch movie metadata (titles, descriptions, release years, poster images) rather than hardcoding data. The ingestion script pages through TMDB's `top_rated` and `popular` endpoints to collect 100 movies.
-- **100 movies** are embedded in the Weaviate collection — each with a text vector (title) and an image vector (poster stored as a base64 blob).
+- **[Weaviate Agent Skills](https://github.com/weaviate/agent-skills)** were loaded into Claude Code at session start. These skill files encode correct usage patterns for Weaviate operations (schema creation, [create collection](https://github.com/weaviate/agent-skills/blob/main/skills/weaviate/references/import_data.md), ingest data, vector search, RAG, Query Agent), eliminating guesswork, define [the frontend app](https://github.com/weaviate/agent-skills/blob/main/skills/weaviate-cookbooks/references/frontend_interface.md), and ensuring the agent used the right APIs from the start.
+- **[Kaggle](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata)** was used to retrieve the movie dataset.
+- **Over 100 movies** are embedded in the Weaviate collection — each with a text vector (title) and an image vector (poster stored as a base64 blob).
 
 ## Features
 
@@ -24,13 +24,14 @@ This project was developed end-to-end using **agentic coding**:
 | Feature | Role |
 |---|---|
 | Named Vectors | Two vector spaces per object: `text_vector` (title) and `image_vector` (poster) |
+| Weaviate Cookbooks | For frontend definition |
+| Weaviate Import Skill | For creating collection and ingesting data |
 | `text2vec-weaviate` | Embeds movie titles for semantic text search |
 | `multi2multivec-weaviate` | Embeds poster images using the Weaviate multimodal module |
 | `generative-openai` | Connects OpenAI GPT to Weaviate for RAG |
 | `near_text` | Semantic similarity search over the text vector |
 | `single_prompt` | Per-movie AI explanation generated at query time |
 | `grouped_task` | One cohesive AI response across all results |
-| Weaviate Cookbooks | For frontend definition |
 | Query Agent | Conversational AI chat with source citations via `weaviate-agents` |
 | Agent Skills | Skill YAML files loaded into Claude Code to guide correct Weaviate API usage |
 
@@ -64,7 +65,6 @@ movie-discovery-app/
   - `multi2multivec-weaviate`
   - `generative-openai`
 - An [OpenAI API key](https://platform.openai.com/api-keys)
-- A [TMDB API key](https://www.themoviedb.org/settings/api) (free) — only needed for the one-time ingestion step
 
 ## Setup
 
@@ -100,7 +100,6 @@ Create a `.env` file in the project root:
 WEAVIATE_URL=your-cluster-host.weaviate.network
 WEAVIATE_API_KEY=your-weaviate-api-key
 OPENAI_API_KEY=your-openai-api-key
-TMDB_API_KEY=your-tmdb-api-key
 ```
 
 > **Note:** `WEAVIATE_URL` should be the bare hostname — no `https://` prefix.

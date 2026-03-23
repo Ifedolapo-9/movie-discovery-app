@@ -79,7 +79,7 @@ def search(q: str = Query(..., min_length=1), limit: int = Query(3, ge=1, le=10)
         query=q,
         target_vector="text_vector",
         limit=limit,
-        return_properties=["title", "description", "release_year", "poster"],
+        return_properties=["title", "description", "release_year", "genre", "vote_average", "poster"],
     )
     movies = []
     for obj in results.objects:
@@ -89,6 +89,8 @@ def search(q: str = Query(..., min_length=1), limit: int = Query(3, ge=1, le=10)
             "title":        p["title"],
             "description":  p.get("description", ""),
             "release_year": p.get("release_year"),
+            "genre":        p.get("genre", ""),
+            "vote_average": p.get("vote_average"),
             "poster":       p.get("poster"),   # base64 string or None
         })
     return {"movies": movies}
