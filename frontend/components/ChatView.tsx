@@ -1,243 +1,219 @@
-"use client";
+'use client';
 
-import { useState, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import ReactMarkdown from "react-markdown";
-import { FaPaperPlane, FaRobot, FaUser, FaTrash, FaChevronDown, FaChevronUp, FaSpinner } from "react-icons/fa";
+import { useState, useRef, useEffect } from 'react';
+import { Send, Trash2, Bot, User, Loader2, Film } from 'lucide-react';
+import Image from 'next/image';
+import clsx from 'clsx';
+import type { ChatMessage, Movie } from '@/types';
+import { chatWithAgent } from '@/lib/api';
 
-const BACKEND = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "localhost:8000";
+// ─── Source citation card ─────────────────────────────────────────────────────
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  sources?: Array<{ collection: string; object_id: string }>;
+function SourceCard({ movie }: { movie: Movie }) {
+  return (
+    <div className="flex items-center gap-2 p-2 rounded-lg bg-[#131320] border border-[#252538] min-w-0">
+      {movie.poster && (
+        <div className="relative w-8 h-11 flex-shrink-0 rounded overflow-hidden">
+          <Image src={movie.poster} alt={movie.title} fill sizes="32px" className="object-cover" />
+        </div>
+      )}
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-white truncate leading-none">{movie.title}</p>
+        <p className="text-[10px] text-gray-500 mt-0.5">{movie.release_year}</p>
+      </div>
+    </div>
+  );
 }
+
+// ─── Message bubble ───────────────────────────────────────────────────────────
+
+function MessageBubble({ message }: { message: ChatMessage }) {
+  const isUser = message.role === 'user';
+  return (
+    <div className={clsx('flex gap-2.5', isUser && 'flex-row-reverse')}>
+      {/* Avatar */}
+      <div
+        className={clsx(
+          'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5',
+          isUser
+            ? 'bg-green-500/20 text-green-400'
+            : 'bg-[#1A1A2E] text-purple-400 border border-purple-500/30',
+        )}
+      >
+        {isUser ? <User size={13} /> : <Bot size={13} />}
+      </div>
+
+      {/* Content */}
+      <div className={clsx('flex flex-col max-w-[80%]', isUser && 'items-end')}>
+        <div
+          className={clsx(
+            'px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap',
+            isUser
+              ? 'bg-green-600/20 text-white rounded-tr-sm border border-green-500/20'
+              : 'bg-[#161626] text-gray-200 rounded-tl-sm border border-[#252538]',
+          )}
+        >
+          {message.content}
+        </div>
+
+        {/* Source citations */}
+        {message.sources && message.sources.length > 0 && (
+          <div className="mt-2 w-full max-w-sm">
+            <p className="text-[10px] text-gray-600 mb-1.5 flex items-center gap-1">
+              <Film size={10} />
+              Sources from Weaviate
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {message.sources.map(src => (
+                <SourceCard key={src.title} movie={src} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Suggestion prompts ───────────────────────────────────────────────────────
+
+const SUGGESTIONS = [
+  'What sci-fi movies are in the collection?',
+  'Recommend something for a family night',
+  'Which movie has the highest rating?',
+  'Tell me about action thrillers',
+];
+
+// ─── ChatView ─────────────────────────────────────────────────────────────────
 
 export default function ChatView() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [expandedSources, setExpandedSources] = useState<Record<number, boolean>>({});
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const [input, setInput]       = useState('');
+  const [loading, setLoading]   = useState(false);
+  const bottomRef               = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
 
-  const handleSend = async () => {
-    const trimmed = input.trim();
-    if (!trimmed || loading) return;
+  const send = async (text?: string) => {
+    const content = (text ?? input).trim();
+    if (!content || loading) return;
 
-    const newMessages: ChatMessage[] = [...messages, { role: "user", content: trimmed }];
-    setMessages(newMessages);
-    setInput("");
+    const userMsg: ChatMessage = { role: 'user', content };
+    const updated = [...messages, userMsg];
+    setMessages(updated);
+    setInput('');
     setLoading(true);
-    setError(null);
 
     try {
-      const res = await fetch(`http://${BACKEND}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: newMessages.map(({ role, content }) => ({ role, content })),
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setMessages([
-        ...newMessages,
-        {
-          role: "assistant",
-          content: data.answer ?? "",
-          sources: data.sources ?? [],
-        },
+      const res = await chatWithAgent(
+        updated.map(({ role, content: c }) => ({ role, content: c })),
+      );
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: res.answer, sources: res.sources },
       ]);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Chat request failed");
-      setMessages(newMessages);
+    } catch {
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: '⚠️ Could not reach the agent. Is the backend running on port 8000?' },
+      ]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleClear = () => {
-    setMessages([]);
-    setError(null);
-    setExpandedSources({});
-  };
-
-  const toggleSources = (idx: number) => {
-    setExpandedSources((prev) => ({ ...prev, [idx]: !prev[idx] }));
-  };
-
   return (
-    <div className="flex flex-col h-full w-full max-w-3xl mx-auto px-4 py-6 gap-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-white/80 font-semibold text-sm uppercase tracking-wider">
-          AI Chat
-        </h2>
+    <div className="flex flex-col h-full overflow-hidden">
+
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-[#252538] bg-[#0E0E1A]/95 backdrop-blur flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center">
+            <Bot size={14} className="text-purple-400" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-white leading-none">Weaviate Query Agent</p>
+            <p className="text-[10px] text-gray-500 mt-0.5">Answers questions about the Movie collection</p>
+          </div>
+        </div>
         {messages.length > 0 && (
-          <Button
-            size="sm"
-            onClick={handleClear}
-            className="bg-white/10 hover:bg-white/20 text-white/70 border border-white/20 gap-1.5 text-xs"
+          <button
+            onClick={() => setMessages([])}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-gray-500 hover:text-red-400 hover:bg-red-500/10 border border-[#252538] hover:border-red-500/30 transition-all"
           >
-            <FaTrash size={10} /> Clear chat
-          </Button>
+            <Trash2 size={12} />
+            Clear
+          </button>
         )}
       </div>
 
-      {/* Messages area */}
-      <div className="flex-1 flex flex-col gap-3 overflow-y-auto min-h-0 pr-1">
-        {messages.length === 0 && !loading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex flex-col items-center justify-center flex-1 text-white/30 gap-3 py-16"
-          >
-            <FaRobot size={40} />
-            <p className="text-sm">Ask anything about movies...</p>
-          </motion.div>
-        )}
+      {/* ── Messages ── */}
+      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
-        <AnimatePresence initial={false}>
-          {messages.map((msg, idx) => (
-            <motion.div
-              key={idx}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ type: "spring", stiffness: 200, damping: 25 }}
-              className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-            >
-              {/* Avatar */}
-              <div
-                className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm ${
-                  msg.role === "user"
-                    ? "bg-purple-600/50 text-white"
-                    : "bg-indigo-600/50 text-white"
-                }`}
-              >
-                {msg.role === "user" ? <FaUser size={12} /> : <FaRobot size={12} />}
-              </div>
-
-              {/* Bubble */}
-              <div
-                className={`flex flex-col gap-1 max-w-[80%] ${
-                  msg.role === "user" ? "items-end" : "items-start"
-                }`}
-              >
-                <div
-                  className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-purple-600/40 border border-purple-400/30 text-white"
-                      : "bg-white/10 border border-white/20 text-white/90 backdrop-blur-md"
-                  }`}
+        {/* Empty state with suggestions */}
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-64 select-none">
+            <Bot size={40} className="text-gray-700 mb-3" />
+            <p className="text-sm font-medium text-gray-500 mb-4">Ask anything about the movies</p>
+            <div className="w-full max-w-xs space-y-2">
+              {SUGGESTIONS.map(s => (
+                <button
+                  key={s}
+                  onClick={() => send(s)}
+                  className="w-full text-left text-xs text-gray-500 border border-[#252538] rounded-lg px-3 py-2 hover:border-green-500/30 hover:text-green-400 transition-all"
                 >
-                  {msg.role === "assistant" ? (
-                    <div className="prose prose-invert prose-sm max-w-none [&>p]:mb-1 [&>ul]:mb-1">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    </div>
-                  ) : (
-                    msg.content
-                  )}
-                </div>
-
-                {/* Sources */}
-                {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
-                  <div className="w-full">
-                    <button
-                      onClick={() => toggleSources(idx)}
-                      className="flex items-center gap-1 text-xs text-white/40 hover:text-white/60 transition-colors"
-                    >
-                      {expandedSources[idx] ? <FaChevronUp size={9} /> : <FaChevronDown size={9} />}
-                      {msg.sources.length} source{msg.sources.length !== 1 ? "s" : ""}
-                    </button>
-                    <AnimatePresence>
-                      {expandedSources[idx] && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ type: "spring", stiffness: 250, damping: 28 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="mt-1 flex flex-col gap-1">
-                            {msg.sources.map((src, si) => (
-                              <div
-                                key={si}
-                                className="text-xs text-white/40 bg-white/5 rounded-lg px-3 py-1.5 border border-white/10"
-                              >
-                                <span className="text-white/60">{src.collection}</span>
-                                <span className="text-white/30 mx-1">/</span>
-                                <span className="font-mono text-xs">{src.object_id.slice(0, 8)}...</span>
-                              </div>
-                            ))}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-
-        {loading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex gap-3"
-          >
-            <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-indigo-600/50 text-white">
-              <FaRobot size={12} />
+                  {s}
+                </button>
+              ))}
             </div>
-            <div className="bg-white/10 border border-white/20 rounded-2xl px-4 py-2.5 flex items-center gap-2 text-white/50 text-sm backdrop-blur-md">
-              <FaSpinner className="animate-spin" size={12} />
-              Thinking...
-            </div>
-          </motion.div>
+          </div>
         )}
 
-        {error && (
-          <p className="text-red-400 text-sm text-center py-2">{error}</p>
+        {messages.map((msg, i) => (
+          <MessageBubble key={i} message={msg} />
+        ))}
+
+        {/* Typing indicator */}
+        {loading && (
+          <div className="flex gap-2.5">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center bg-[#1A1A2E] text-purple-400 border border-purple-500/30 mt-0.5 flex-shrink-0">
+              <Bot size={13} />
+            </div>
+            <div className="px-4 py-2.5 rounded-2xl rounded-tl-sm bg-[#161626] border border-[#252538] flex items-center gap-2">
+              <Loader2 size={13} className="animate-spin text-purple-400" />
+              <span className="text-sm text-gray-500">Thinking…</span>
+            </div>
+          </div>
         )}
 
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 120 }}
-        className="flex gap-2"
-      >
-        <Input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-          placeholder="Ask about movies..."
-          disabled={loading}
-          className="flex-1 bg-white/10 backdrop-blur-md border-white/20 text-white placeholder:text-white/40 focus-visible:ring-purple-400/50 focus-visible:border-purple-400/50"
-        />
-        <Button
-          onClick={handleSend}
-          disabled={loading || !input.trim()}
-          className="bg-purple-600/60 hover:bg-purple-600/80 text-white border border-purple-400/30 gap-2 backdrop-blur-md"
+      {/* ── Input ── */}
+      <div className="flex-shrink-0 border-t border-[#252538] p-4 bg-[#0E0E1A]/95 backdrop-blur">
+        <form
+          onSubmit={e => { e.preventDefault(); send(); }}
+          className="flex gap-2 max-w-3xl mx-auto"
         >
-          {loading ? (
-            <FaSpinner className="animate-spin" size={14} />
-          ) : (
-            <FaPaperPlane size={14} />
-          )}
-          Send
-        </Button>
-      </motion.div>
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder="Ask about movies…"
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 bg-[#161626] border border-[#252538] rounded-xl text-sm text-white placeholder-gray-600 focus:outline-none focus:border-green-500/50 focus:ring-1 focus:ring-green-500/20 disabled:opacity-50 transition-colors"
+          />
+          <button
+            type="submit"
+            disabled={loading || !input.trim()}
+            className="p-2.5 bg-green-600 hover:bg-green-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-white transition-colors"
+            aria-label="Send message"
+          >
+            <Send size={16} />
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

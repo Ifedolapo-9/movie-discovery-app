@@ -1,270 +1,183 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import MovieCard, { Movie } from "@/components/MovieCard";
-import ReactMarkdown from "react-markdown";
-import { FaSearch, FaRobot, FaMoon, FaChevronDown, FaChevronUp, FaSpinner } from "react-icons/fa";
+import { useState, useRef } from 'react';
+import { Search, Sparkles, Calendar, Loader2, AlertCircle } from 'lucide-react';
+import type { Movie } from '@/types';
+import { searchMovies, explainMovies, planMovies } from '@/lib/api';
+import MovieCard from './MovieCard';
 
-const BACKEND = process.env.NEXT_PUBLIC_BACKEND_HOST ?? "localhost:8000";
-
-interface ExplanationItem {
-  title: string;
-  release_year: number;
-  explanation: string;
-}
+type LoadingState = 'search' | 'explain' | 'plan' | null;
 
 interface SearchViewProps {
   watchlist: Movie[];
-  onAddToWatchlist: (movie: Movie) => void;
+  onToggleWatchlist: (movie: Movie) => void;
 }
 
-export default function SearchView({ watchlist, onAddToWatchlist }: SearchViewProps) {
-  const [query, setQuery] = useState("");
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
+export default function SearchView({ watchlist, onToggleWatchlist }: SearchViewProps) {
+  const [query, setQuery]     = useState('');
+  const [results, setResults] = useState<Movie[]>([]);
+  const [plan, setPlan]       = useState<string | null>(null);
+  const [loading, setLoading] = useState<LoadingState>(null);
+  const [error, setError]     = useState<string | null>(null);
+  const inputRef              = useRef<HTMLInputElement>(null);
 
-  const [explanations, setExplanations] = useState<ExplanationItem[] | null>(null);
-  const [explaining, setExplaining] = useState(false);
-  const [explainError, setExplainError] = useState<string | null>(null);
-  const [expandedExplanations, setExpandedExplanations] = useState<Record<string, boolean>>({});
+  const isInWatchlist = (m: Movie) => watchlist.some(w => w.title === m.title);
 
-  const [movieNightPlan, setMovieNightPlan] = useState<string | null>(null);
-  const [planning, setPlanning] = useState(false);
-  const [planError, setPlanError] = useState<string | null>(null);
-
-  const handleSearch = async () => {
-    if (!query.trim()) return;
-    setSearching(true);
-    setSearchError(null);
-    setMovies([]);
-    setExplanations(null);
-    setMovieNightPlan(null);
+  const run = async (mode: LoadingState) => {
+    if (!query.trim() || !mode) return;
+    setLoading(mode);
+    setError(null);
+    if (mode === 'search') setPlan(null);
 
     try {
-      const res = await fetch(`http://${BACKEND}/search?q=${encodeURIComponent(query)}&limit=3`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setMovies(data.movies ?? []);
-    } catch (err: unknown) {
-      setSearchError(err instanceof Error ? err.message : "Search failed");
+      if (mode === 'search') {
+        setResults(await searchMovies(query.trim(), 6));
+      } else if (mode === 'explain') {
+        setResults(await explainMovies(query.trim(), results.length || 6));
+      } else {
+        const data = await planMovies(query.trim(), 4);
+        setPlan(data.plan);
+        setResults(data.results);
+      }
+    } catch {
+      setError(
+        mode === 'search'
+          ? 'Search failed. Is the backend running on port 8000?'
+          : `${mode === 'explain' ? 'Explain' : 'Plan'} failed.`,
+      );
     } finally {
-      setSearching(false);
+      setLoading(null);
     }
   };
-
-  const handleExplain = async () => {
-    if (!movies.length) return;
-    setExplaining(true);
-    setExplainError(null);
-    setExplanations(null);
-
-    try {
-      const res = await fetch(`http://${BACKEND}/ai/explain`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, limit: movies.length }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setExplanations(data.explanations ?? []);
-    } catch (err: unknown) {
-      setExplainError(err instanceof Error ? err.message : "AI explain failed");
-    } finally {
-      setExplaining(false);
-    }
-  };
-
-  const handlePlan = async () => {
-    if (!movies.length) return;
-    setPlanning(true);
-    setPlanError(null);
-    setMovieNightPlan(null);
-
-    try {
-      const res = await fetch(`http://${BACKEND}/ai/plan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, titles: movies.map((m) => m.title), limit: movies.length }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setMovieNightPlan(data.plan ?? "");
-    } catch (err: unknown) {
-      setPlanError(err instanceof Error ? err.message : "Planning failed");
-    } finally {
-      setPlanning(false);
-    }
-  };
-
-  const toggleExplanation = (title: string) => {
-    setExpandedExplanations((prev) => ({ ...prev, [title]: !prev[title] }));
-  };
-
-  const isInWatchlist = (movie: Movie) => watchlist.some((w) => w.id === movie.id);
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-5xl mx-auto px-4 py-6">
-      {/* Search input */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 120 }}
-        className="flex gap-2"
-      >
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-          placeholder="Describe a movie you're in the mood for..."
-          className="flex-1 bg-white/10 backdrop-blur-md border-white/20 text-white placeholder:text-white/40 focus-visible:ring-purple-400/50 focus-visible:border-purple-400/50"
-        />
-        <Button
-          onClick={handleSearch}
-          disabled={searching || !query.trim()}
-          className="bg-purple-600/60 hover:bg-purple-600/80 text-white border border-purple-400/30 gap-2 backdrop-blur-md"
-        >
-          {searching ? <FaSpinner className="animate-spin" size={14} /> : <FaSearch size={14} />}
-          Search
-        </Button>
-      </motion.div>
+    <div className="flex flex-col h-full overflow-hidden">
 
-      {searchError && (
-        <p className="text-red-400 text-sm text-center">{searchError}</p>
-      )}
+      {/* ── Sticky header ── */}
+      <div className="sticky top-0 z-10 bg-[#0E0E1A]/95 backdrop-blur border-b border-[#252538] px-6 py-4">
+        <div className="max-w-3xl mx-auto">
 
-      {/* Movie grid */}
-      <AnimatePresence>
-        {movies.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4"
-          >
-            {movies.map((movie, i) => (
-              <MovieCard
-                key={movie.id}
-                movie={movie}
-                onAddToWatchlist={onAddToWatchlist}
-                isInWatchlist={isInWatchlist(movie)}
-                index={i}
+          {/* Search bar */}
+          <form onSubmit={e => { e.preventDefault(); run('search'); }} className="flex gap-2">
+            <div className="relative flex-1">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search movies… e.g. 'space adventure' or 'dark psychological thriller'"
+                className="w-full pl-9 pr-4 py-2.5 bg-[#161626] border border-[#252538] rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:border-green-500/50 focus:ring-1 focus:ring-green-500/20 transition-colors"
               />
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* AI action buttons */}
-      <AnimatePresence>
-        {movies.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ type: "spring", stiffness: 100, delay: 0.3 }}
-            className="flex flex-wrap gap-3"
-          >
-            <Button
-              onClick={handleExplain}
-              disabled={explaining}
-              className="bg-indigo-600/40 hover:bg-indigo-600/60 text-white border border-indigo-400/30 gap-2 backdrop-blur-md"
-            >
-              {explaining ? <FaSpinner className="animate-spin" size={14} /> : <FaRobot size={14} />}
-              Ask AI about these movies
-            </Button>
-            <Button
-              onClick={handlePlan}
-              disabled={planning}
-              className="bg-pink-600/40 hover:bg-pink-600/60 text-white border border-pink-400/30 gap-2 backdrop-blur-md"
-            >
-              {planning ? <FaSpinner className="animate-spin" size={14} /> : <FaMoon size={14} />}
-              Plan My Movie Night
-            </Button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {explainError && <p className="text-red-400 text-sm">{explainError}</p>}
-
-      {/* AI Explanations */}
-      <AnimatePresence>
-        {explanations && explanations.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ type: "spring", stiffness: 80 }}
-            className="flex flex-col gap-3"
-          >
-            <h2 className="text-white/80 font-semibold text-sm uppercase tracking-wider">
-              AI Explanations
-            </h2>
-            {explanations.map((item) => (
-              <motion.div
-                key={item.title}
-                layout
-                className="rounded-xl bg-white/10 backdrop-blur-md border border-white/20 shadow-md overflow-hidden"
-              >
-                <button
-                  className="w-full flex items-center justify-between px-4 py-3 text-left"
-                  onClick={() => toggleExplanation(item.title)}
-                >
-                  <span className="text-white font-medium text-sm">
-                    {item.title}{" "}
-                    <span className="text-white/50 font-normal">({item.release_year})</span>
-                  </span>
-                  {expandedExplanations[item.title] ? (
-                    <FaChevronUp className="text-white/50 shrink-0" size={12} />
-                  ) : (
-                    <FaChevronDown className="text-white/50 shrink-0" size={12} />
-                  )}
-                </button>
-                <AnimatePresence>
-                  {expandedExplanations[item.title] && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ type: "spring", stiffness: 200, damping: 25 }}
-                      className="overflow-hidden"
-                    >
-                      <p className="px-4 pb-4 text-white/70 text-sm leading-relaxed">
-                        {item.explanation}
-                      </p>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {planError && <p className="text-red-400 text-sm">{planError}</p>}
-
-      {/* Movie Night Plan */}
-      <AnimatePresence>
-        {movieNightPlan && (
-          <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ type: "spring", stiffness: 80 }}
-            className="rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 shadow-lg p-5"
-          >
-            <h2 className="text-white/80 font-semibold text-sm uppercase tracking-wider mb-3 flex items-center gap-2">
-              <FaMoon size={14} /> Movie Night Plan
-            </h2>
-            <div className="prose prose-invert prose-sm max-w-none text-white/80 leading-relaxed [&>p]:mb-2 [&>ul]:mb-2 [&>h1]:text-white [&>h2]:text-white [&>h3]:text-white [&>strong]:text-white">
-              <ReactMarkdown>{movieNightPlan}</ReactMarkdown>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            <button
+              type="submit"
+              disabled={loading !== null}
+              className="px-4 py-2.5 bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
+            >
+              {loading === 'search'
+                ? <Loader2 size={14} className="animate-spin" />
+                : <Search size={14} />}
+              Search
+            </button>
+          </form>
+
+          {/* AI action buttons */}
+          {results.length > 0 && (
+            <div className="flex gap-2 mt-3">
+              <button
+                onClick={() => run('explain')}
+                disabled={loading !== null}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-purple-500/30 text-purple-400 hover:bg-purple-500/10 disabled:opacity-50 transition-colors"
+              >
+                {loading === 'explain'
+                  ? <Loader2 size={12} className="animate-spin" />
+                  : <Sparkles size={12} />}
+                Explain Results
+              </button>
+              <button
+                onClick={() => run('plan')}
+                disabled={loading !== null}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+              >
+                {loading === 'plan'
+                  ? <Loader2 size={12} className="animate-spin" />
+                  : <Calendar size={12} />}
+                Plan a Night
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Scrollable content ── */}
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="max-w-6xl mx-auto">
+
+          {/* Error */}
+          {error && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm mb-4">
+              <AlertCircle size={14} className="flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {/* Movie Night Plan */}
+          {plan && (
+            <div className="mb-6 p-4 rounded-xl bg-amber-500/5 border border-amber-500/20">
+              <div className="flex items-center gap-2 mb-2">
+                <Calendar size={13} className="text-amber-400" />
+                <h3 className="text-sm font-semibold text-amber-300">Movie Night Plan</h3>
+              </div>
+              <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{plan}</p>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!loading && results.length === 0 && !error && (
+            <div className="flex flex-col items-center justify-center h-72 text-gray-600 select-none">
+              <Search size={42} className="mb-3 opacity-20" />
+              <p className="text-sm font-medium text-gray-500">Find your next movie</p>
+              <p className="text-xs mt-1.5 text-gray-600">Try: &quot;action hero&quot;, &quot;sci-fi epic&quot;, &quot;feel-good comedy&quot;</p>
+            </div>
+          )}
+
+          {/* Skeleton while searching */}
+          {loading === 'search' && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="rounded-xl bg-[#161626] border border-[#252538] animate-pulse overflow-hidden">
+                  <div className="aspect-[2/3] bg-[#1F1F35]" />
+                  <div className="p-3 space-y-2">
+                    <div className="h-3 bg-[#1F1F35] rounded w-4/5" />
+                    <div className="h-2 bg-[#1F1F35] rounded w-1/2" />
+                    <div className="h-2 bg-[#1F1F35] rounded w-2/3 mt-2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Results grid */}
+          {results.length > 0 && loading !== 'search' && (
+            <>
+              <p className="text-xs text-gray-600 mb-4">
+                {results.length} result{results.length !== 1 ? 's' : ''} for &quot;{query}&quot;
+                {loading && <span className="ml-2 text-green-400 animate-pulse">· updating…</span>}
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                {results.map(movie => (
+                  <MovieCard
+                    key={movie.title}
+                    movie={movie}
+                    inWatchlist={isInWatchlist(movie)}
+                    onToggleWatchlist={onToggleWatchlist}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

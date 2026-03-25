@@ -9,6 +9,7 @@ This project was developed end-to-end using **agentic coding**:
 - **Claude Code** wrote, ran, and debugged every script and component in this project — the schema, ingestion pipeline, FastAPI backend, and Next.js frontend — based on natural language prompts.
 - **[Weaviate Agent Skills](https://github.com/weaviate/agent-skills)** were loaded into Claude Code at session start. These skill files encode correct usage patterns for Weaviate operations (schema creation, [create collection](https://github.com/weaviate/agent-skills/blob/main/skills/weaviate/references/import_data.md), ingest data, vector search, RAG, Query Agent), eliminating guesswork, define [the frontend app](https://github.com/weaviate/agent-skills/blob/main/skills/weaviate-cookbooks/references/frontend_interface.md), and ensuring the agent used the right APIs from the start.
 - **[Kaggle](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata)** was used to retrieve the movie dataset.
+- **[TMDB API key](https://www.themoviedb.org/)** – Used to fetch movie poster URLs
 - **Over 100 movies** are embedded in the Weaviate collection — each with a text vector (title) and an image vector (poster stored as a base64 blob).
 
 ## Features
@@ -36,25 +37,33 @@ This project was developed end-to-end using **agentic coding**:
 | Agent Skills | Skill YAML files loaded into Claude Code to guide correct Weaviate API usage |
 
 ## Project Structure
+```
+movie-discovery/
+├── .env                    # API keys and Weaviate cluster URL
+├── tmdb_5000_movies.csv    # Source dataset (TMDB 5000)
+├── movies.json             # Processed dataset with poster URLs (100 movies)
+│
+├── add_posters.py          # Step 1 — fetch poster URLs from TMDB API → movies.json
+├── import_movies.py        # Step 2 — create Weaviate collection & batch import
+├── backend.py              # FastAPI application (all API routes)
+│
+└── frontend/
+    ├── app/
+    │   ├── layout.tsx          # Root layout
+    │   └── page.tsx            # Entry point — view switching + watchlist state
+    ├── components/
+    │   ├── AppSidebar.tsx      # Navigation sidebar + watchlist display
+    │   ├── SearchView.tsx      # Search bar, Explain, Plan a Night
+    │   ├── ChatView.tsx        # Multi-turn AI chat interface
+    │   └── MovieCard.tsx       # Film card with poster, rating, genres, watchlist toggle
+    ├── lib/
+    │   └── api.ts              # All fetch calls to the FastAPI backend
+    ├── types/
+    │   └── index.ts            # Shared TypeScript interfaces
+    ├── package.json
+    └── tailwind.config.ts
+```
 
-```
-movie-discovery-app/
-├── backend.py            # FastAPI app — REST API for search, RAG, and Query Agent chat
-├── frontend/             # Next.js (TypeScript) SPA
-│   ├── app/
-│   │   ├── layout.tsx
-│   │   └── page.tsx      # Root layout with sidebar + view switching
-│   └── components/
-│       ├── AppSidebar.tsx # Navigation, Weaviate branding, watchlist manager
-│       ├── SearchView.tsx # Semantic search, AI explain, Movie Night Planner
-│       ├── ChatView.tsx   # Multi-turn Query Agent chat with source citations
-│       └── MovieCard.tsx  # Poster display, watchlist button
-├── create_schema.py      # Creates the Movie collection via Weaviate REST API
-├── ingest_movies.py      # Fetches 100 movies from TMDB and ingests with poster blobs
-├── check_modules.py      # Lists enabled modules on the Weaviate cluster
-├── requirements.txt      # Python dependencies
-└── .env                  # API keys (not committed)
-```
 
 ## Prerequisites
 
@@ -64,9 +73,12 @@ movie-discovery-app/
   - `text2vec-weaviate`
   - `multi2multivec-weaviate`
   - `generative-openai`
+- [Kaggle Dataset](https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata)
 - An [OpenAI API key](https://platform.openai.com/api-keys)
+- A[TMDB API key](https://www.themoviedb.org/) 
 
 ## Setup
+
 
 ### 1. Clone and create a virtual environment
 
@@ -100,52 +112,79 @@ Create a `.env` file in the project root:
 WEAVIATE_URL=your-cluster-host.weaviate.network
 WEAVIATE_API_KEY=your-weaviate-api-key
 OPENAI_API_KEY=your-openai-api-key
+TMDB_API_KEY=your-tmdb-api-key
 ```
 
 > **Note:** `WEAVIATE_URL` should be the bare hostname — no `https://` prefix.
 
-### 5. Create the Weaviate schema
+### 5 Data Import
+
+Run these two scripts **once** to build and populate the dataset.
 
 ```bash
-python create_schema.py
+# 1. Create a virtual environment and install dependencies
+python -m venv .venv
+source .venv/Scripts/activate   # Windows: .venv\Scripts\activate
+
+pip install weaviate-client python-dotenv
+
+# 2. Fetch poster URLs and build movies.json (100 movies)
+python add_posters.py
+
+# 3. Create the Weaviate collection and import all 100 movies
+python import_movies.py
 ```
 
-Creates a `Movie` collection with two named vectors (`text_vector` and `image_vector`) and enables RAG via `generative-openai`.
+### 6 Initiate the Servers
 
-### 6. Ingest movies
-
+**Backend** (FastAPI on port 8000):
 ```bash
-python ingest_movies.py
-```
-
-Fetches 100 movies from the TMDB API (`top_rated` + `popular` endpoints), downloads each poster, encodes it as a base64 blob, and inserts everything into Weaviate. Each object is automatically dual-vectorised server-side — title via `text2vec-weaviate`, poster via `multi2multivec-weaviate`.
-
-### 7. Run the app
-
-Open two terminals:
-
-```bash
-# Terminal 1 — Backend (FastAPI)
+source .venv/Scripts/activate
 uvicorn backend:app --reload --port 8000
 ```
 
+**Frontend** (Next.js on port 3000):
 ```bash
-# Terminal 2 — Frontend (Next.js)
-cd frontend && npm run dev
+cd frontend
+npm install
+npm run dev
 ```
 
-Open **http://localhost:3000** in your browser. The API runs at **http://localhost:8000**.
+### 7 Open Data Import
 
-## Dataset
+Run these two scripts **once** to build and populate the dataset.
 
-**100 movies** sourced dynamically from the TMDB API, spanning genres including drama, thriller, sci-fi, crime, and animation. Metadata per movie:
+```bash
+# 1. Create a virtual environment and install dependencies
+python -m venv .venv
+source .venv/Scripts/activate   # Windows: .venv\Scripts\activate
 
-| Field | Source |
-|---|---|
-| Title | TMDB API |
-| Description | TMDB API (`overview` field) |
-| Release year | TMDB API (`release_date`) |
-| Poster | TMDB CDN (`image.tmdb.org/t/p/w500/`) stored as base64 blob |
+pip install weaviate-client python-dotenv
+
+# 2. Fetch poster URLs and build movies.json (100 movies)
+python add_posters.py
+
+# 3. Create the Weaviate collection and import all 100 movies
+python import_movies.py
+```
+
+### 8 Running the Servers
+
+**Backend** (FastAPI on port 8000):
+```bash
+source .venv/Scripts/activate
+uvicorn backend:app --reload --port 8000
+```
+
+**Frontend** (Next.js on port 3000):
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open [http://localhost:8000/docs](http://localhost:8000/docs) in your browser for the backend API and [http://localhost:3000](http://localhost:3000) in your browser to view the app's frontend.
+
 
 ## Tech Stack
 
@@ -153,7 +192,7 @@ Open **http://localhost:3000** in your browser. The API runs at **http://localho
 |---|---|
 | Vector database | Weaviate Cloud (v4 SDK) |
 | AI coding agent | Claude Code (Anthropic) |
-| Agent skill guidance | Weaviate Agent Skills |
+| Agent skill guidance | Weaviate Agent Skills (Import and Cookbooks)|
 | Movie data source | TMDB API |
 | Backend | FastAPI + Uvicorn |
 | Frontend | Next.js 16 (TypeScript, Tailwind CSS, Framer Motion) |
