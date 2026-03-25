@@ -1,21 +1,41 @@
-# Environment
-.env
-
-# Virtual environment
-venv/
-
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
 
-# OS
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# ── Environment & secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Node / Next.js ────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.env.local
+frontend/.env.*.local
+
+# ── Data files ────────────────────────────────────────────────────────────────
+# Keep movies.json (processed dataset) but ignore large source CSV if desired
+# tmdb_5000_movies.csv  # uncomment to exclude the raw CSV from git
+
+# ── OS & editor ───────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-
-# IDE
-.vscode/
+desktop.ini
 .idea/
-
-# Streamlit
-.streamlit/secrets.toml
+.vscode/
+*.swp
+*.swo

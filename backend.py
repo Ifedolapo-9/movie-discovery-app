@@ -1,41 +1,46 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Query
+from dotenv import load_dotenv
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import weaviate
-from weaviate.auth import AuthApiKey
+from weaviate.auth import Auth
 from weaviate.agents.query import QueryAgent
-from weaviate_agents.query.classes import QueryAgentCollectionConfig
-from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Weaviate client (module-level, reused across requests) ────────────────────
-client = weaviate.connect_to_weaviate_cloud(
-    cluster_url=os.getenv("WEAVIATE_URL"),
-    auth_credentials=AuthApiKey(os.getenv("WEAVIATE_API_KEY")),
-    headers={"X-OpenAI-Api-Key": os.getenv("OPENAI_API_KEY")},
-    skip_init_checks=True,
-)
-collection   = client.collections.get("Movie")
-_query_agent = None
+# ---------------------------------------------------------------------------
+# Weaviate client — shared across requests
+# ---------------------------------------------------------------------------
+_client: weaviate.WeaviateClient | None = None
 
 
-def get_query_agent() -> QueryAgent:
-    global _query_agent
-    if _query_agent is None:
-        _query_agent = QueryAgent(
-            client=client,
-            collections=[
-                QueryAgentCollectionConfig(name="Movie", target_vector="text_vector")
-            ],
-        )
-    return _query_agent
+def get_client() -> weaviate.WeaviateClient:
+    if _client is None:
+        raise RuntimeError("Weaviate client not initialised")
+    return _client
 
 
-# ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="Movie Discovery API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _client
+    _client = weaviate.connect_to_weaviate_cloud(
+        cluster_url=os.getenv("WEAVIATE_URL"),
+        auth_credentials=Auth.api_key(os.getenv("WEAVIATE_API_KEY")),
+        headers={"X-OpenAI-Api-Key": os.getenv("OPENAI_API_KEY")},
+        skip_init_checks=True,
+    )
+    print("Weaviate connected.")
+    yield
+    _client.close()
+    print("Weaviate disconnected.")
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+app = FastAPI(title="Movie Discovery API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,21 +50,63 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+RETURN_PROPS = [
+    "title", "overview", "release_date", "poster_url",
+    "genres", "vote_average",
+]
 
-# ── Request / response models ─────────────────────────────────────────────────
+
+def _format_movie(props: dict) -> dict:
+    release_date = props.get("release_date") or ""
+    return {
+        "title":        props.get("title", ""),
+        "description":  props.get("overview", ""),
+        "release_year": release_date[:4] if release_date else "",
+        "poster":       props.get("poster_url", ""),
+        "genres":       props.get("genres", ""),
+        "vote_average": props.get("vote_average", 0.0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.get("/search")
+def search(q: str = Query(..., min_length=1), limit: int = Query(3, ge=1, le=20)):
+    collection = get_client().collections.get("Movie")
+    result = collection.query.near_text(
+        query=q,
+        limit=limit,
+        target_vector="default",
+        return_properties=RETURN_PROPS,
+    )
+    return {"results": [_format_movie(obj.properties) for obj in result.objects]}
+
+
+# ---------------------------------------------------------------------------
+# AI routes
+# ---------------------------------------------------------------------------
+
 class ExplainRequest(BaseModel):
     query: str
     limit: int = 3
+    prompt: str = "In one short paragraph, explain why '{title}' is worth watching based on this overview: {overview}"
 
 
 class PlanRequest(BaseModel):
     query: str
-    titles: list[str]
     limit: int = 3
+    task: str = "Based on these movies, suggest a themed movie night plan with a brief intro for each film."
 
 
 class ChatMessage(BaseModel):
-    role: str
+    role: str   # "user" or "assistant"
     content: str
 
 
@@ -67,94 +114,71 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-
-@app.get("/search")
-def search(q: str = Query(..., min_length=1), limit: int = Query(3, ge=1, le=10)):
-    results = collection.query.near_text(
-        query=q,
-        target_vector="text_vector",
-        limit=limit,
-        return_properties=["title", "description", "release_year", "genre", "vote_average", "poster"],
-    )
-    movies = []
-    for obj in results.objects:
-        p = obj.properties
-        movies.append({
-            "id":           str(obj.uuid),
-            "title":        p["title"],
-            "description":  p.get("description", ""),
-            "release_year": p.get("release_year"),
-            "genre":        p.get("genre", ""),
-            "vote_average": p.get("vote_average"),
-            "poster":       p.get("poster"),   # base64 string or None
-        })
-    return {"movies": movies}
-
-
 @app.post("/ai/explain")
 def ai_explain(req: ExplainRequest):
-    prompt = (
-        f"A user searched for: '{req.query}'. "
-        "In 2-3 sentences explain why '{title}' ({release_year}) "
-        "is a great match, referencing its themes: {description}"
-    )
-    resp = collection.generate.near_text(
+    collection = get_client().collections.get("Movie")
+    result = collection.generate.near_text(
         query=req.query,
-        target_vector="text_vector",
         limit=req.limit,
-        return_properties=["title", "release_year"],
-        single_prompt=prompt,
+        target_vector="default",
+        return_properties=RETURN_PROPS,
+        single_prompt=req.prompt,
     )
-    explanations = []
-    for obj in resp.objects:
-        explanations.append({
-            "title":        obj.properties.get("title", ""),
-            "release_year": obj.properties.get("release_year"),
-            "explanation":  obj.generated,
-        })
-    return {"explanations": explanations}
+    movies = []
+    for obj in result.objects:
+        movie = _format_movie(obj.properties)
+        movie["explanation"] = obj.generated if obj.generated else ""
+        movies.append(movie)
+    return {"results": movies}
 
 
 @app.post("/ai/plan")
 def ai_plan(req: PlanRequest):
-    task = (
-        f"The user wanted: '{req.query}'. "
-        f"The 3 recommended films are: {', '.join(req.titles)}. "
-        "Write a fun movie-night plan with: "
-        "1) The best viewing order with a one-line reason for each, "
-        "2) A snack pairing for each film, "
-        "3) A 2-sentence theme tying all three together."
-    )
-    resp = collection.generate.near_text(
+    collection = get_client().collections.get("Movie")
+    result = collection.generate.near_text(
         query=req.query,
-        target_vector="text_vector",
         limit=req.limit,
-        return_properties=["title"],
-        grouped_task=task,
+        target_vector="default",
+        return_properties=RETURN_PROPS,
+        grouped_task=req.task,
     )
-    return {"plan": resp.generated}
+    return {
+        "plan":    result.generated,
+        "results": [_format_movie(obj.properties) for obj in result.objects],
+    }
 
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    agent    = get_query_agent()
-    messages = [{"role": m.role, "content": m.content} for m in req.messages]
-    try:
-        response = agent.ask(messages)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    if not req.messages:
+        raise HTTPException(status_code=400, detail="messages cannot be empty")
 
-    answer  = getattr(response, "final_answer", "") or "I could not find an answer for that."
+    client = get_client()
+    collection = client.collections.get("Movie")
+
+    agent = QueryAgent(client=client, collections=["Movie"])
+
+    # Embed prior turns into the query so the agent has full context
+    last_message = req.messages[-1].content
+    if len(req.messages) > 1:
+        history_text = "\n".join(
+            f"{m.role.capitalize()}: {m.content}" for m in req.messages[:-1]
+        )
+        query = f"Conversation so far:\n{history_text}\n\nUser: {last_message}"
+    else:
+        query = last_message
+
+    response = agent.ask(query)
+
+    # Fetch full properties for each source object
+    collection = client.collections.get("Movie")
     sources = []
-    if hasattr(response, "sources") and response.sources:
-        for src in response.sources:
-            sources.append({
-                "collection": getattr(src, "collection", None),
-                "object_id":  str(getattr(src, "object_id", None)),
-            })
-    return {"answer": answer, "sources": sources}
+    for src in (response.sources or []):
+        obj = collection.query.fetch_object_by_id(src.object_id, return_properties=RETURN_PROPS)
+        if obj:
+            sources.append(_format_movie(obj.properties))
+
+    return {
+        "answer":  response.final_answer,
+        "sources": sources,
+    }

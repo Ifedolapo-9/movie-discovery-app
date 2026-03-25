@@ -1,194 +1,292 @@
-"use client";
+'use client';
 
-import { motion, AnimatePresence } from "framer-motion";
+import { createContext, useContext, useState } from 'react';
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarGroupContent,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-  SidebarSeparator,
-  SidebarFooter,
-} from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
-import { FaFilm, FaSearch, FaComments, FaTimes, FaDownload } from "react-icons/fa";
-import { Movie } from "@/components/MovieCard";
+  Search, MessageSquare, Download,
+  X, ChevronLeft, ChevronRight, Bookmark, BookmarkCheck,
+  DatabaseZap, Sparkles, Bot, Zap,
+} from 'lucide-react';
+import clsx from 'clsx';
+import type { Movie, ViewMode } from '@/types';
 
-type View = "search" | "chat";
+// ─── Sidebar Context ──────────────────────────────────────────────────────────
+
+interface SidebarCtx {
+  open: boolean;
+  toggle: () => void;
+}
+
+const SidebarContext = createContext<SidebarCtx>({ open: true, toggle: () => {} });
+
+export function useSidebar() {
+  return useContext(SidebarContext);
+}
+
+export function SidebarProvider({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <SidebarContext.Provider value={{ open, toggle: () => setOpen(v => !v) }}>
+      {children}
+    </SidebarContext.Provider>
+  );
+}
+
+// ─── Weaviate Logo ────────────────────────────────────────────────────────────
+
+function WeaviateLogoMark({ className }: { className?: string }) {
+  return (
+    // Official Weaviate logo mark — interconnected node graph
+    <svg viewBox="0 0 100 100" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Connection lines */}
+      <line x1="50" y1="12" x2="88" y2="35" stroke="currentColor" strokeWidth="5" strokeLinecap="round" opacity="0.5"/>
+      <line x1="88" y1="35" x2="88" y2="65" stroke="currentColor" strokeWidth="5" strokeLinecap="round" opacity="0.5"/>
+      <line x1="88" y1="65" x2="50" y2="88" stroke="currentColor" strokeWidth="5" strokeLinecap="round" opacity="0.5"/>
+      <line x1="50" y1="88" x2="12" y2="65" stroke="currentColor" strokeWidth="5" strokeLinecap="round" opacity="0.5"/>
+      <line x1="12" y1="65" x2="12" y2="35" stroke="currentColor" strokeWidth="5" strokeLinecap="round" opacity="0.5"/>
+      <line x1="12" y1="35" x2="50" y2="12" stroke="currentColor" strokeWidth="5" strokeLinecap="round" opacity="0.5"/>
+      {/* Cross-connections */}
+      <line x1="50" y1="12" x2="12" y2="65" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      <line x1="50" y1="12" x2="88" y2="65" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      <line x1="12" y1="35" x2="88" y2="65" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      <line x1="88" y1="35" x2="12" y2="65" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      <line x1="12" y1="35" x2="50" y2="88" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      <line x1="88" y1="35" x2="50" y2="88" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      {/* Outer nodes */}
+      <circle cx="50" cy="12" r="8" fill="currentColor"/>
+      <circle cx="88" cy="35" r="8" fill="currentColor"/>
+      <circle cx="88" cy="65" r="8" fill="currentColor"/>
+      <circle cx="50" cy="88" r="8" fill="currentColor"/>
+      <circle cx="12" cy="65" r="8" fill="currentColor"/>
+      <circle cx="12" cy="35" r="8" fill="currentColor"/>
+      {/* Centre node */}
+      <circle cx="50" cy="50" r="10" fill="currentColor"/>
+      <line x1="50" y1="12" x2="50" y2="50" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      <line x1="88" y1="35" x2="50" y2="50" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      <line x1="88" y1="65" x2="50" y2="50" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      <line x1="50" y1="88" x2="50" y2="50" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      <line x1="12" y1="65" x2="50" y2="50" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+      <line x1="12" y1="35" x2="50" y2="50" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" opacity="0.3"/>
+    </svg>
+  );
+}
+
+function WeaviateLogo() {
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className="w-9 h-9 rounded-xl bg-green-500/15 border border-green-500/30 flex items-center justify-center flex-shrink-0 p-1.5">
+        <WeaviateLogoMark className="w-full h-full text-green-400" />
+      </div>
+      <div>
+        <p className="text-sm font-bold text-white leading-none tracking-wide">weaviate</p>
+        <p className="text-[10px] text-green-400 leading-none mt-0.5 font-medium">Movie Discovery</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Agent Skills ─────────────────────────────────────────────────────────────
+
+const AGENT_SKILLS = [
+  {
+    icon: DatabaseZap,
+    label: 'Import Data',
+    desc: 'Batch-imports 100 movies into a Weaviate collection with text2vec-openai auto-vectorization.',
+    skill: 'weaviate/import_data',
+  },
+  {
+    icon: Search,
+    label: 'Vector Search',
+    desc: 'near_text semantic search — find movies by concept, mood, or theme, not just keywords.',
+    skill: 'weaviate/query',
+  },
+  {
+    icon: Sparkles,
+    label: 'Generative Search',
+    desc: 'RAG via generate.near_text — per-movie explanations (single_prompt) and movie-night plans (grouped_task).',
+    skill: 'weaviate/generative',
+  },
+  {
+    icon: Bot,
+    label: 'Query Agent',
+    desc: 'Weaviate QueryAgent handles multi-turn chat with full conversation history over the Movie collection.',
+    skill: 'weaviate/query_agent',
+  },
+  {
+    icon: Zap,
+    label: 'Frontend Interface',
+    desc: 'Next.js + FastAPI cookbook pattern — React UI consuming REST endpoints backed by Weaviate Cloud.',
+    skill: 'weaviate-cookbooks/frontend_interface',
+  },
+];
+
+// ─── AppSidebar ───────────────────────────────────────────────────────────────
 
 interface AppSidebarProps {
-  currentView: View;
-  onViewChange: (view: View) => void;
+  view: ViewMode;
+  onViewChange: (v: ViewMode) => void;
   watchlist: Movie[];
-  onRemoveFromWatchlist: (id: string) => void;
+  onRemoveFromWatchlist: (title: string) => void;
 }
 
 export default function AppSidebar({
-  currentView,
-  onViewChange,
-  watchlist,
-  onRemoveFromWatchlist,
+  view, onViewChange, watchlist, onRemoveFromWatchlist,
 }: AppSidebarProps) {
-  const handleExport = () => {
-    const lines = watchlist.map((m) => `${m.title} (${m.release_year})`);
-    const content = "My Movie Watchlist\n==================\n\n" + lines.join("\n");
-    const blob = new Blob([content], { type: "text/plain" });
+  const { open, toggle } = useSidebar();
+
+  const exportWatchlist = () => {
+    const blob = new Blob([JSON.stringify(watchlist, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const a = document.createElement('a');
     a.href = url;
-    a.download = "watchlist.txt";
+    a.download = 'watchlist.json';
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const navItems: { id: View; label: string; icon: React.ReactNode }[] = [
-    { id: "search", label: "Search", icon: <FaSearch size={14} /> },
-    { id: "chat", label: "Chat", icon: <FaComments size={14} /> },
-  ];
-
   return (
-    <Sidebar className="border-r border-white/10">
-      <div className="h-full flex flex-col bg-white/5 backdrop-blur-xl">
-        {/* Header */}
-        <SidebarHeader className="p-4 border-b border-white/10">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-purple-600/60 flex items-center justify-center shrink-0">
-              <FaFilm className="text-white" size={14} />
-            </div>
-            <span className="font-semibold text-white text-sm leading-tight">
-              Movie Discovery
-            </span>
+    <aside
+      className={clsx(
+        'relative flex flex-col h-full bg-[#09091A] border-r border-[#252538] flex-shrink-0 transition-all duration-300',
+        open ? 'w-64' : 'w-14',
+      )}
+    >
+      {/* Collapse toggle */}
+      <button
+        onClick={toggle}
+        className="absolute -right-3 top-5 z-20 w-6 h-6 rounded-full bg-[#09091A] border border-[#252538] flex items-center justify-center text-gray-500 hover:text-white hover:border-green-500/50 transition-colors"
+        aria-label="Toggle sidebar"
+      >
+        {open ? <ChevronLeft size={11} /> : <ChevronRight size={11} />}
+      </button>
+
+      {/* Logo */}
+      <div className={clsx('p-4 border-b border-[#252538]', !open && 'flex justify-center px-3')}>
+        {open ? (
+          <WeaviateLogo />
+        ) : (
+          <div className="w-9 h-9 rounded-xl bg-green-500/15 border border-green-500/30 flex items-center justify-center p-1.5">
+            <WeaviateLogoMark className="w-full h-full text-green-400" />
           </div>
-        </SidebarHeader>
+        )}
+      </div>
 
-        <SidebarContent className="flex-1 overflow-y-auto p-3 flex flex-col gap-1">
-          {/* Navigation */}
-          <SidebarGroup>
-            <SidebarGroupLabel className="text-white/40 text-xs uppercase tracking-wider px-2 pb-1">
-              Navigation
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {navItems.map((item) => (
-                  <SidebarMenuItem key={item.id}>
-                    <SidebarMenuButton
-                      isActive={currentView === item.id}
-                      onClick={() => onViewChange(item.id)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all cursor-pointer ${
-                        currentView === item.id
-                          ? "bg-purple-600/40 text-white border border-purple-400/30"
-                          : "text-white/60 hover:text-white hover:bg-white/10"
-                      }`}
-                    >
-                      {item.icon}
-                      {item.label}
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+      {/* Navigation */}
+      <div className="p-2 border-b border-[#252538]">
+        {open && (
+          <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-wider px-2 mb-1.5">
+            Navigation
+          </p>
+        )}
+        <nav className="space-y-1">
+          {([
+            { id: 'search' as ViewMode, icon: Search,         label: 'Search' },
+            { id: 'chat'   as ViewMode, icon: MessageSquare,  label: 'AI Chat' },
+          ] as const).map(({ id, icon: Icon, label }) => (
+            <button
+              key={id}
+              onClick={() => onViewChange(id)}
+              className={clsx(
+                'w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-sm font-medium transition-colors',
+                view === id
+                  ? 'bg-green-500/15 text-green-400 border border-green-500/25'
+                  : 'text-gray-400 hover:text-white hover:bg-white/5 border border-transparent',
+                !open && 'justify-center px-0',
+              )}
+            >
+              <Icon size={15} />
+              {open && <span>{label}</span>}
+            </button>
+          ))}
+        </nav>
+      </div>
 
-          <SidebarSeparator className="bg-white/10 my-2" />
+      {/* Agent Skills */}
+      {open && (
+        <div className="p-3 border-b border-[#252538]">
+          <div className="flex items-center gap-1.5 px-1 mb-2.5">
+            <WeaviateLogoMark className="w-3 h-3 text-green-500" />
+            <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
+              Agent Skills
+            </p>
+          </div>
+          <ul className="space-y-3">
+            {AGENT_SKILLS.map(({ icon: Icon, label, desc, skill }) => (
+              <li key={label} className="flex items-start gap-2.5 px-1 group">
+                <div className="mt-0.5 flex-shrink-0 w-5 h-5 rounded-md bg-green-500/10 border border-green-500/20 flex items-center justify-center">
+                  <Icon size={10} className="text-green-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-gray-200 leading-none">{label}</p>
+                  <p className="text-[10px] text-gray-500 mt-1 leading-relaxed">{desc}</p>
+                  <p className="text-[9px] text-green-600/70 mt-0.5 font-mono">{skill}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-          {/* Weaviate branding + features */}
-          <SidebarGroup>
-            <div className="px-2 pt-1 pb-3 flex flex-col gap-2">
-              <img
-                src="https://weaviate.io/img/site/weaviate-logo-light.png"
-                alt="Weaviate"
-                className="h-7 w-auto object-contain opacity-75"
-              />
-              <p className="text-white/35 text-xs leading-relaxed">
-                Semantic search powered by Weaviate vector database.
+      {/* Watchlist */}
+      <div className="flex-1 overflow-hidden flex flex-col p-2 min-h-0">
+        {open ? (
+          <>
+            <div className="flex items-center justify-between px-1 mb-2">
+              <p className="text-[10px] font-semibold text-gray-600 uppercase tracking-wider">
+                Watchlist
               </p>
-              <div className="flex flex-col gap-1 mt-0.5">
-                {[
-                  "text2vec-weaviate",
-                  "multi2multivec-weaviate",
-                  "generative-openai",
-                  "near_text search",
-                  "single_prompt RAG",
-                  "grouped_task RAG",
-                  "Query Agent",
-                ].map((feature) => (
-                  <span key={feature} className="text-white/40 text-xs flex items-center gap-1.5">
-                    <span className="w-1 h-1 rounded-full bg-purple-400/60 shrink-0" />
-                    {feature}
-                  </span>
-                ))}
-              </div>
+              <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full font-medium">
+                {watchlist.length}
+              </span>
             </div>
-          </SidebarGroup>
-
-          <SidebarSeparator className="bg-white/10 my-2" />
-
-          {/* Watchlist */}
-          <SidebarGroup className="flex-1">
-            <SidebarGroupLabel className="text-white/40 text-xs uppercase tracking-wider px-2 pb-1 flex items-center justify-between">
-              <span>My Watchlist</span>
+            <div className="flex-1 overflow-y-auto space-y-1">
+              {watchlist.length === 0 ? (
+                <p className="text-[11px] text-gray-600 px-1 italic mt-1">No movies saved yet.</p>
+              ) : (
+                watchlist.map(m => (
+                  <div
+                    key={m.title}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-[#131320] group"
+                  >
+                    <BookmarkCheck size={10} className="text-green-400 flex-shrink-0" />
+                    <span className="text-xs text-gray-300 truncate flex-1 leading-none">{m.title}</span>
+                    <button
+                      onClick={() => onRemoveFromWatchlist(m.title)}
+                      className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-red-400 transition-all flex-shrink-0"
+                      aria-label={`Remove ${m.title}`}
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="flex justify-center mt-3">
+            <div className="relative">
+              <Bookmark size={15} className="text-gray-600" />
               {watchlist.length > 0 && (
-                <span className="bg-purple-600/40 text-purple-300 text-xs rounded-full px-1.5 py-0.5 font-medium">
+                <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-green-500 rounded-full text-[8px] text-black flex items-center justify-center font-bold">
                   {watchlist.length}
                 </span>
               )}
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <AnimatePresence>
-                {watchlist.length === 0 ? (
-                  <p className="text-white/30 text-xs px-2 py-2">
-                    No movies saved yet. Search and add some!
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    {watchlist.map((movie) => (
-                      <motion.div
-                        key={movie.id}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -10 }}
-                        transition={{ type: "spring", stiffness: 200, damping: 25 }}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 group"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="text-white/80 text-xs font-medium truncate leading-tight">
-                            {movie.title}
-                          </p>
-                          <p className="text-white/40 text-xs">{movie.release_year}</p>
-                        </div>
-                        <button
-                          onClick={() => onRemoveFromWatchlist(movie.id)}
-                          className="shrink-0 text-white/30 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                          title="Remove"
-                        >
-                          <FaTimes size={10} />
-                        </button>
-                      </motion.div>
-                    ))}
-                  </div>
-                )}
-              </AnimatePresence>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-
-        {/* Footer */}
-        {watchlist.length > 0 && (
-          <SidebarFooter className="p-3 border-t border-white/10">
-            <Button
-              size="sm"
-              onClick={handleExport}
-              className="w-full bg-white/10 hover:bg-white/20 text-white/70 border border-white/20 gap-1.5 text-xs"
-            >
-              <FaDownload size={10} /> Export .txt
-            </Button>
-          </SidebarFooter>
+            </div>
+          </div>
         )}
       </div>
-    </Sidebar>
+
+      {/* Export */}
+      {open && watchlist.length > 0 && (
+        <div className="p-2 border-t border-[#252538]">
+          <button
+            onClick={exportWatchlist}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-green-400 border border-green-500/25 hover:bg-green-500/10 transition-colors"
+          >
+            <Download size={12} />
+            Export Watchlist
+          </button>
+        </div>
+      )}
+    </aside>
   );
 }
